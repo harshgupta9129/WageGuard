@@ -29,6 +29,11 @@ export default function WorkerDashboard() {
   const [hoursWorked, setHoursWorked] = useState(8);
   const [records, setRecords] = useState([]);
   
+  // Employer autocomplete search states
+  const [employers, setEmployers] = useState([]);
+  const [employerSearch, setEmployerSearch] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  
   // UX/UI States
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -54,6 +59,15 @@ export default function WorkerDashboard() {
     }
   }, [user, navigate]);
 
+  const fetchEmployers = async () => {
+    try {
+      const res = await API.get("/api/auth/employers");
+      setEmployers(res.data);
+    } catch (err) {
+      console.error("Failed to fetch employers:", err);
+    }
+  };
+
   const fetchHistory = async () => {
     if (!user) return;
     setLoading(true);
@@ -70,7 +84,59 @@ export default function WorkerDashboard() {
 
   useEffect(() => {
     fetchHistory();
+    if (user && user.role === "worker") {
+      fetchEmployers();
+    }
   }, [user]);
+
+  const getCombinedEmployers = () => {
+    const map = new Map();
+    // 1. Add employers from API
+    employers.forEach((emp) => {
+      map.set(emp.phone, emp);
+    });
+
+    // 2. Add employers from attendance history
+    records.forEach((rec) => {
+      if (rec.employer && rec.employer.phone && !map.has(rec.employer.phone)) {
+        map.set(rec.employer.phone, {
+          name: rec.employer.name || "Unknown Employer",
+          phone: rec.employer.phone
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  };
+
+  const handleEmployerSearchChange = (e) => {
+    const val = e.target.value;
+    setEmployerSearch(val);
+    setShowDropdown(true);
+
+    const list = getCombinedEmployers();
+    const found = list.find((emp) => emp.name.toLowerCase() === val.toLowerCase());
+    if (found) {
+      setEmployerPhone(found.phone);
+    }
+  };
+
+  const selectEmployer = (emp) => {
+    setEmployerPhone(emp.phone);
+    setEmployerSearch(emp.name);
+    setShowDropdown(false);
+  };
+
+  const handlePhoneChange = (e) => {
+    const val = e.target.value;
+    setEmployerPhone(val);
+
+    const list = getCombinedEmployers();
+    const found = list.find((emp) => emp.phone === val);
+    if (found) {
+      setEmployerSearch(found.name);
+    }
+  };
 
   const handleMarkAttendance = async (e) => {
     e.preventDefault();
@@ -93,6 +159,7 @@ export default function WorkerDashboard() {
 
       showToast("Attendance marked successfully!", "success");
       setEmployerPhone("");
+      setEmployerSearch("");
       setHoursWorked(8);
       // Prepend new record to the list
       setRecords((prev) => [res.data, ...prev]);
@@ -307,6 +374,49 @@ export default function WorkerDashboard() {
               </h3>
 
               <form onSubmit={handleMarkAttendance} className="space-y-5">
+                {/* Employer Name autocomplete search input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 font-display">
+                    Employer's Name
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-slate-400 dark:text-slate-500">
+                      <User size={16} />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Type to search e.g. Demo Employer"
+                      value={employerSearch}
+                      onChange={handleEmployerSearchChange}
+                      onFocus={() => setShowDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 pl-11 pr-4 py-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-400 dark:placeholder-slate-700 font-medium"
+                    />
+                    
+                    {/* Autocomplete Dropdown list */}
+                    {showDropdown && employerSearch && (
+                      <div className="absolute z-20 left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80">
+                        {getCombinedEmployers()
+                          .filter((emp) =>
+                            emp.name.toLowerCase().includes(employerSearch.toLowerCase()) ||
+                            emp.phone.includes(employerSearch)
+                          )
+                          .map((emp) => (
+                            <button
+                              key={emp.phone}
+                              type="button"
+                              onClick={() => selectEmployer(emp)}
+                              className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex justify-between items-center gap-2 cursor-pointer"
+                            >
+                              <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{emp.name}</span>
+                              <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{emp.phone}</span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 font-display">
                     Employer's Phone Number
@@ -320,8 +430,8 @@ export default function WorkerDashboard() {
                       required
                       placeholder="e.g. 9876543210"
                       value={employerPhone}
-                      onChange={(e) => setEmployerPhone(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 pl-11 pr-4 py-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-400 dark:placeholder-slate-700 font-medium"
+                      onChange={handlePhoneChange}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 pl-11 pr-4 py-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-400 dark:placeholder-slate-700 font-medium font-mono"
                     />
                   </div>
                 </div>
